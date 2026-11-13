@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -32,6 +33,7 @@ type gateway struct {
 	client    *http.Client
 	proxy     *httputil.ReverseProxy
 	auth      *ssoAuth
+	compatMu  sync.Mutex // Serializes paid submissions and the local journal.
 }
 
 type envelope struct {
@@ -228,6 +230,7 @@ func allowed(method, path string) bool {
 
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	compatible := isCompatPath(r.URL.Path)
 	if r.Method == "GET" && r.URL.Path == "/healthz" {
 		writeJSON(w, 200, map[string]string{"status": "ok"})
 		return
@@ -235,7 +238,11 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || subtle.ConstantTimeCompare([]byte(provided), []byte(g.key)) != 1 {
 		w.Header().Set("WWW-Authenticate", "Bearer")
-		writeError(w, 401, "INVALID_API_KEY", "需要有效的内部 Bearer API Key")
+		if compatible {
+			writeCompatError(w, &compatError{status: 401, code: "invalid_api_key", message: "需要有效的内部 Bearer API Key"})
+		} else {
+			writeError(w, 401, "INVALID_API_KEY", "需要有效的内部 Bearer API Key")
+		}
 		return
 	}
 	token, expires, tokenErr := readToken(g.tokenFile)
@@ -257,10 +264,18 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		token, expires, tokenErr = g.auth.token(r.Context())
 	}
 	if tokenErr != nil {
-		writeError(w, 503, "UPSTREAM_TOKEN_UNAVAILABLE", tokenErr.Error())
+		if compatible {
+			writeCompatError(w, &compatError{status: 503, code: "upstream_token_unavailable", message: tokenErr.Error()})
+		} else {
+			writeError(w, 503, "UPSTREAM_TOKEN_UNAVAILABLE", tokenErr.Error())
+		}
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), authContextKey{}, token))
+	if compatible {
+		g.compat(w, r)
+		return
+	}
 	switch {
 	case r.Method == "GET" && r.URL.Path == "/v1/workflows":
 		g.workflows(w, r)

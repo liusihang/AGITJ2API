@@ -42,6 +42,74 @@ python3 import_token.py --sso-cookie
 
 除 `/healthz` 外，所有接口都需要 `Authorization: Bearer <内部 API Key>`。内部 Key 不会传到同济；上游只收到平台的登录 token。内部 Key 在启动时读取，修改它需要重启；上游 token 每个请求重读，更新无需重启。
 
+## OpenAI 风格兼容接口
+
+基础地址为 `http://127.0.0.1:8789/v1`，使用同一个内部 API Key。模型 ID 直接使用 `/v1/models` 返回的同济工作流代码，不需要另建模型映射。模型额外的 `type` 字段区分 `t2i`、`i2i`、`t2v`、`i2v` 等能力。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/v1/models`、`/v1/models/{id}` | OpenAI 风格的模型列表和单模型信息 |
+| POST | `/v1/images/generations` | 文生图，等待任务完成后返回图片 |
+| POST | `/v1/images/edits` | 上传或提供参考图，等待编辑完成后返回图片 |
+| POST | `/v1/videos` | 创建视频任务，立即返回 `video_<任务ID>` |
+| GET | `/v1/videos/{id}` | 查询视频状态和进度 |
+| GET | `/v1/videos/{id}/content` | 下载视频，支持 Range；仅支持 `variant=video` |
+
+图片接口默认返回 `data[].b64_json`；传 `response_format=url` 可取得平台的临时下载地址，当前票据通常约 15 分钟有效。图片生成默认使用 `t2i-krea2-turbo`，编辑默认使用 `qwen-image-2-1-e`。具体费用以使用前的 `/v1/estimate` 和任务最终结算为准。
+
+```python
+from openai import OpenAI
+from pathlib import Path
+import base64
+import uuid
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8789/v1",
+    api_key=Path("data/api-key").read_text().strip(),
+    timeout=1000,
+    max_retries=0,
+)
+
+# 为每次新业务保存一个键；恢复同一次请求时使用原键。
+request_key = str(uuid.uuid4())
+result = client.images.generate(
+    model="t2i-krea2-turbo",
+    prompt="一只白色陶瓷杯放在木桌上，柔和晨光",
+    size="1024x1024",
+    extra_headers={"Idempotency-Key": request_key},
+)
+Path("image.png").write_bytes(base64.b64decode(result.data[0].b64_json))
+
+with open("reference.png", "rb") as image:
+    edited = client.images.edit(
+        model="qwen-image-2-1-e", image=image,
+        prompt="保持主体，将背景改为浅蓝色",
+        extra_headers={"Idempotency-Key": str(uuid.uuid4())},
+    )
+Path("edited.png").write_bytes(base64.b64decode(edited.data[0].b64_json))
+```
+
+参考图支持 multipart 上传、JSON 中的公网 HTTPS `image_url`，或 `data:image/...;base64,...`。单张限 20 MB，最多四张，实际数量由所选工作流决定；为保护服务所在的网络，URL 不访问私有、回环或链路本地地址。平台自身的 `/remote-home/` 签名输出可用作参考图，下载时不携带内部凭据。支持 PNG、JPEG 和 WebP 参考图。平台的工作流可能另有限制。
+
+视频接口沿用历史 Sora 风格的异步结构，供支持该协议的客户端使用。OpenAI 官方 Videos API 已于 2026 年 9 月停止服务；这里的模型和实际任务由同济平台提供。[官方历史接口说明](https://developers.openai.com/api/reference/resources/videos)。
+
+```python
+video = client.videos.create(
+    model="minimax-h3-t2v", prompt="清晨湖面，薄雾中阳光缓缓升起",
+    seconds="5", extra_headers={"Idempotency-Key": str(uuid.uuid4())},
+)
+print(video.id, video.status)  # 后续查询 client.videos.retrieve(video.id)
+# completed 后使用 client.videos.download_content(video.id).write_to_file("video.mp4")
+```
+
+图生视频选择 `i2v` 模型并提供 `input_reference.image_url` 或 multipart 参考图；文生视频选择 `t2v` 模型。历史 Sora 客户端的 `seconds` 值与同济模型的可选值不一定一致，请以 `/v1/workflows` 中该模型的 `duration` 为准。
+
+兼容范围以实际工作流能力为准：显式 `size` 必须与模型支持的精确尺寸一致，未指定或 `auto` 使用工作流默认值；视频模型未提供分辨率控制时，显式 `size` 会返回错误，查询结果中的尺寸为空。当前不支持流式图片、mask、OpenAI `file_id`、透明背景或指定非默认质量。不支持的字段或参数返回错误，不会悄悄更改生成要求。
+
+图片接口最多等待 15 分钟。任务状态、文件下载、上游错误和客户端断开不会触发生成 POST 的自动重发。建议客户端**在提交前保存 `Idempotency-Key` 并关闭无键自动重试**：兼容接口会在 `data/compat-submissions/` 保存请求摘要和任务 ID，同一键的相同请求可恢复已接受的任务；同一键对应不同请求、或此前提交结果不明时，会返回 409。未提供键时服务会生成一个并在响应头返回，但客户端连接在收到响应前中断时，不能仅靠这个自动生成的键识别重试。当前幂等记录按单实例设计。
+
+音乐/音效和 3D 继续使用下述原生异步任务接口。语音合成 TTS、语音识别 ASR 尚未接入。
+
 ## 推荐调用方式
 
 ```bash
