@@ -1,0 +1,9 @@
+services:
+  tongji-aigc:
+    build: .
+    restart: unless-stopped
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    ports:
+      - "127.0.0.1:8789:8789"
+    volumes:
+      - ./data:/app/data

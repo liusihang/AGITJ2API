@@ -1,0 +1,5 @@
+/data/
+/tongji-aigc-proxy
+/validation.json
+__pycache__/
+.DS_Store
