@@ -1,0 +1,2 @@
+# Version used for the project's SDK integration checks.
+openai==3.50.0

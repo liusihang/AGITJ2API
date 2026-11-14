@@ -1,0 +1,11 @@
+title = "AGITJ2API secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Exact, non-secret API key used only by the local test server"
+condition = "AND"
+paths = ['''^main_test\.go$''']
+regexTarget = "secret"
+regexes = ['''^test-internal-api-key-1234567890$''']

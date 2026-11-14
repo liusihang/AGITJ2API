@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go ${{ matrix.go }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.23.x', stable]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+      - name: Check Go formatting
+        run: test -z "$(gofmt -l *.go)"
+      - name: Run tests and static checks
+        run: make check
+      - name: Build
+        run: make build
+
+  docker:
+    name: Docker Compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and initialize without host Go
+        run: |
+          mkdir -p data
+          chmod 700 data
+          echo "LOCAL_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "LOCAL_GID=$(id -g)" >> "$GITHUB_ENV"
+          export LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)"
+          docker compose config --quiet
+          docker compose build
+          docker compose run --rm --no-deps agitj2api -init
+          test "$(stat -c '%a' data/api-key)" = 600
+          docker compose up -d
+      - name: Check startup and authentication
+        run: python3 scripts/smoke_test.py
+      - name: Stop containers
+        if: always()
+        run: |
+          docker compose logs --tail=30
+          docker compose down

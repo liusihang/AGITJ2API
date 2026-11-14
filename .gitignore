@@ -1,5 +1,15 @@
 /data/
+/bin/
+/dist/
+/agitj2api
 /tongji-aigc-proxy
 /validation.json
+.env
+.env.*
+!.env.example
+*.log
+coverage.out
+.venv/
 __pycache__/
+*.py[cod]
 .DS_Store

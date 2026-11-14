@@ -113,7 +113,7 @@ func main() {
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	log.Printf("Tongji AIGC proxy listening on %s", *listen)
+	log.Printf("AGITJ2API listening on %s", *listen)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
