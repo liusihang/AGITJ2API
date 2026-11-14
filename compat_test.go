@@ -59,6 +59,8 @@ func setupCompat(t *testing.T) *compatFixture {
 			t.Error("upstream authorization missing or internal key leaked")
 		}
 		switch {
+		case r.URL.Path == "/api/v1/chat/models":
+			fmt.Fprint(w, `{"code":200,"data":[]}`)
 		case r.URL.Path == "/api/v1/aigc/templates":
 			items := make([]map[string]any, 0, len(schemas))
 			for code, schema := range schemas {

@@ -2,7 +2,7 @@
 
 一个 Go 标准库服务，单账号、固定内部 API Key、自动 SSO 续登、无数据库。支持平台当前的生图、图像编辑、视频、音乐/音效和 3D 工作流。任务由同济平台运行和保存，本服务转发请求及文件流。
 
-接口来自同济平台网页使用的 AIGC 协议；工作流和参数以实时接口为准。音乐/音效工作流包含在内，独立 TTS/ASR 不在本服务范围。官方入口：[AIGC 专区](https://agi.tongji.edu.cn/aigc/image)、[AIGC 说明](https://agi.tongji.edu.cn/docs/aigc-overview)。
+接口来自同济平台网页使用的 AIGC 和语音识别协议；工作流和参数以实时接口为准。音乐/音效工作流和文件语音识别包含在内，独立 TTS 尚未接入。官方入口：[AIGC 专区](https://agi.tongji.edu.cn/aigc/image)、[语音体验](https://agi.tongji.edu.cn/experience/speech)、[AIGC 说明](https://agi.tongji.edu.cn/docs/aigc-overview)。
 
 ## 启动
 
@@ -51,6 +51,7 @@ python3 import_token.py --sso-cookie
 | GET | `/v1/models`、`/v1/models/{id}` | OpenAI 风格的模型列表和单模型信息 |
 | POST | `/v1/images/generations` | 文生图，等待任务完成后返回图片 |
 | POST | `/v1/images/edits` | 上传或提供参考图，等待编辑完成后返回图片 |
+| POST | `/v1/audio/transcriptions` | 上传音频并返回识别文字 |
 | POST | `/v1/videos` | 创建视频任务，立即返回 `video_<任务ID>` |
 | GET | `/v1/videos/{id}` | 查询视频状态和进度 |
 | GET | `/v1/videos/{id}/content` | 下载视频，支持 Range；仅支持 `variant=video` |
@@ -108,7 +109,24 @@ print(video.id, video.status)  # 后续查询 client.videos.retrieve(video.id)
 
 图片接口最多等待 15 分钟。任务状态、文件下载、上游错误和客户端断开不会触发生成 POST 的自动重发。建议客户端**在提交前保存 `Idempotency-Key` 并关闭无键自动重试**：兼容接口会在 `data/compat-submissions/` 保存请求摘要和任务 ID，同一键的相同请求可恢复已接受的任务；同一键对应不同请求、或此前提交结果不明时，会返回 409。未提供键时服务会生成一个并在响应头返回，但客户端连接在收到响应前中断时，不能仅靠这个自动生成的键识别重试。当前幂等记录按单实例设计。
 
-音乐/音效和 3D 继续使用下述原生异步任务接口。语音合成 TTS、语音识别 ASR 尚未接入。
+文件语音识别支持同济的 `Whisper` 和 `Paraformer`，也可使用常见模型名 `whisper-1` 作为 `Whisper` 的别名。Whisper 支持不指定语言自动识别；Paraformer 当前配置为中文，传入 `language="zh"` 会转换为平台要求的中文语言参数。模型以 `/v1/models` 的实时结果为准。
+
+```python
+# 每个新请求先保存唯一键；重试同一请求时使用原键。
+speech_key = str(uuid.uuid4())
+with open("speech.wav", "rb") as audio:
+    transcript = client.audio.transcriptions.create(
+        model="Whisper", file=audio, language="zh",
+        extra_headers={"Idempotency-Key": speech_key},
+    )
+print(transcript.text)
+```
+
+识别接口接受 WAV、MP3，单文件最多 30 MiB；支持 `response_format=json` 和 `text`。Paraformer 返回分段信息时，JSON 结果额外包含 `segments`；Whisper 当前不返回分段。提示词、流式输出、字幕和 `verbose_json` 暂不支持。同步识别等待上游响应最多约 5 分钟，整个请求最多 6 分钟；异步任务最多等待 10 分钟。
+
+语音识别也支持上述 `Idempotency-Key`：同一键可恢复已提交的任务，结果可在平台识别历史保留期内取回；无法确认是否提交时返回错误，不自动重发。代理只保存请求摘要和平台任务或历史 ID，不保存音频和转写文本；平台自身按其历史保留规则保存结果。
+
+音乐/音效和 3D 继续使用下述原生异步任务接口。独立语音合成 TTS 尚未接入。
 
 ## 推荐调用方式
 

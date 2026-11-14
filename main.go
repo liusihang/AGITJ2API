@@ -27,13 +27,14 @@ import (
 )
 
 type gateway struct {
-	key       string
-	tokenFile string
-	upstream  *url.URL
-	client    *http.Client
-	proxy     *httputil.ReverseProxy
-	auth      *ssoAuth
-	compatMu  sync.Mutex // Serializes paid submissions and the local journal.
+	key          string
+	tokenFile    string
+	upstream     *url.URL
+	client       *http.Client
+	speechClient *http.Client
+	proxy        *httputil.ReverseProxy
+	auth         *ssoAuth
+	compatMu     sync.Mutex // Protects submission records and serializes image submissions.
 }
 
 type envelope struct {
@@ -156,8 +157,13 @@ func newGateway(key, tokenFile, origin string) (*gateway, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = 90 * time.Second
 	forwarder := readRetryTransport{base: transport}
+	speechTransport := transport.Clone()
+	speechTransport.ResponseHeaderTimeout = 5 * time.Minute
 	g := &gateway{key: key, tokenFile: tokenFile, upstream: u, client: &http.Client{
 		Transport: forwarder, Timeout: 90 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}, speechClient: &http.Client{
+		Transport: readRetryTransport{base: speechTransport}, Timeout: 6 * time.Minute,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
 	g.proxy = &httputil.ReverseProxy{
@@ -402,7 +408,11 @@ func (g *gateway) call(w http.ResponseWriter, r *http.Request, method, path stri
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	response, err := g.client.Do(req)
+	client := g.client
+	if method == "POST" && path == "/speech/recognize" {
+		client = g.speechClient
+	}
+	response, err := client.Do(req)
 	if err != nil {
 		logUpstreamError(err)
 		return 0, nil, err

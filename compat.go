@@ -63,7 +63,7 @@ func bad(param, message string) *compatError {
 
 func isCompatPath(path string) bool {
 	return path == "/v1/models" || strings.HasPrefix(path, "/v1/models/") ||
-		strings.HasPrefix(path, "/v1/images/") || path == "/v1/videos" || strings.HasPrefix(path, "/v1/videos/")
+		strings.HasPrefix(path, "/v1/images/") || strings.HasPrefix(path, "/v1/audio/") || path == "/v1/videos" || strings.HasPrefix(path, "/v1/videos/")
 }
 
 func (g *gateway) compat(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +80,8 @@ func (g *gateway) compat(w http.ResponseWriter, r *http.Request) {
 		g.compatCreate(w, r, "image")
 	case r.Method == "POST" && r.URL.Path == "/v1/images/edits":
 		g.compatCreate(w, r, "edit")
+	case r.Method == "POST" && r.URL.Path == "/v1/audio/transcriptions":
+		g.speechTranscription(w, r)
 	case r.Method == "POST" && r.URL.Path == "/v1/videos":
 		g.compatCreate(w, r, "video")
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/v1/videos/"):
@@ -195,16 +197,35 @@ func (g *gateway) compatModels(w http.ResponseWriter, r *http.Request, code stri
 	}
 	if code != "" {
 		item, found := workflowByCode(items, code)
-		if !found {
-			writeCompatError(w, &compatError{status: 404, code: "model_not_found", message: "未找到上架模型", param: "model"})
+		if found {
+			writeJSON(w, 200, modelObject(item))
 			return
 		}
-		writeJSON(w, 200, modelObject(item))
+		speech, failure := g.speechModels(w, r)
+		if failure != nil {
+			writeCompatError(w, failure)
+			return
+		}
+		if model, found := findSpeechModel(speech, code); found {
+			obj := speechModelObject(model)
+			obj["id"] = code
+			writeJSON(w, 200, obj)
+			return
+		}
+		writeCompatError(w, &compatError{status: 404, code: "model_not_found", message: "未找到上架模型", param: "model"})
 		return
 	}
 	list := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		list = append(list, modelObject(item))
+	}
+	// Keep existing image/video discovery available if the separate speech service is down.
+	if speech, failure := g.speechModels(w, r); failure == nil {
+		for _, item := range speech {
+			if _, exists := workflowByCode(items, item.Name); !exists {
+				list = append(list, speechModelObject(item))
+			}
+		}
 	}
 	writeJSON(w, 200, map[string]any{"object": "list", "data": list})
 }
