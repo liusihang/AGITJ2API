@@ -21,12 +21,13 @@ A lightweight Go gateway for Tongji University's AGI platform, with OpenAI-style
 | 图像编辑 | `POST /v1/images/edits` | 上传参考图或提供图片 URL |
 | 视频生成 | `POST /v1/videos` | 异步创建、查询、下载，支持 Range |
 | 语音识别 | `POST /v1/audio/transcriptions` | Whisper / Paraformer，WAV / MP3 |
+| 语音合成 | `POST /api/v1/speech/tasks` | 平台原生 TTS 任务提交与查询 |
 | 音乐、音效、3D | `POST /v1/generations` | 平台原生异步工作流 |
 | 登录维护 | `GET /v1/status` | SSO 续登状态、token 到期时间 |
 
 图片、视频的 `model` 使用实时目录中的工作流代码。语音识别支持 `Whisper`、`Paraformer`，`whisper-1` 是同济 `Whisper` 的别名。模型可用性由账号权限和平台目录决定。
 
-当前兼容范围详见 [API 参考](docs/api.md)。独立语音合成 TTS、聊天补全、Responses、实时语音、流式图片、mask 和 OpenAI Files API 尚未接入。音乐生成通过原生工作流调用。
+当前兼容范围详见 [API 参考](docs/api.md)。语音合成 TTS 已通过[原生语音任务接口](docs/api.md#语音合成原生接口)接入，音乐生成通过原生工作流调用。OpenAI `/v1/audio/speech`、聊天补全、Responses、实时语音、流式图片、mask 和 OpenAI Files API 尚未接入。
 
 ## 五分钟启动
 

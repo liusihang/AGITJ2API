@@ -94,7 +94,26 @@ print(transcript.text)
 
 语音识别也支持上述 `Idempotency-Key`：同一键可恢复已提交的任务，结果可在平台识别历史保留期内取回；无法确认是否提交时返回错误，不自动重发。代理只保存请求摘要和平台任务或历史 ID，不保存音频和转写文本；平台自身按其历史保留规则保存结果。
 
-音乐/音效和 3D 继续使用下述原生异步任务接口。独立语音合成 TTS 尚未接入。
+音乐/音效和 3D 继续使用下述原生异步任务接口。语音合成使用下述原生语音任务接口，尚不提供 OpenAI `/v1/audio/speech` 适配。
+
+### 语音合成（原生接口）
+
+使用相同代理 Key 调用以下白名单路由；模型、服务、音色和格式以实时目录为准：
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/api/v1/chat/models?model_type=speech` | 语音模型及 `advanced_config.text_to_speech` |
+| GET | `/api/v1/chat/services?model_asset_id={id}` | 模型当前可用的服务 |
+| POST | `/api/v1/speech/tasks` | 提交语音任务 |
+| POST | `/api/v1/speech/tasks/query` | 查询已提交任务及结果 |
+
+CosyVoice 提交示例（`service_id` 从实时服务列表取得）：
+
+```json
+{"kind":"tts","service_id":123,"text":"你好，这是语音测试。","voice_type":"可爱女生","language":"中文","encoding":"mp3","speed":1.0}
+```
+
+提交返回 `task_id` 和 `history_id`。保存这两个值，以 `kind: "tts"`、相同 `service_id`、`task_id`、`history_id` 查询任务；成功时 `audio_data` 是 Base64 音频，`encoding` 标明实际格式。原生路由直接转发平台响应，不提供本地幂等记录。提交超时或断开时不要自动重发，应先核对平台语音历史，避免创建重复任务。
 
 ## 原生工作流调用
 

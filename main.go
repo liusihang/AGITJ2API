@@ -219,14 +219,14 @@ var cancelRoute = regexp.MustCompile(`^/aigc/tasks/[0-9]+/cancel$`)
 func allowed(method, path string) bool {
 	if method == "GET" {
 		switch path {
-		case "/aigc/templates", "/aigc/templates/timing", "/aigc/health", "/aigc/resource-quota", "/aigc/tasks":
+		case "/aigc/templates", "/aigc/templates/timing", "/aigc/health", "/aigc/resource-quota", "/aigc/tasks", "/chat/models", "/chat/services":
 			return true
 		}
 		return taskRoute.MatchString(path)
 	}
 	if method == "POST" {
 		switch path {
-		case "/aigc/inputs", "/aigc/estimate", "/aigc/quote", "/aigc/tasks", "/aigc/media-ticket", "/aigc/prompt/optimize":
+		case "/aigc/inputs", "/aigc/estimate", "/aigc/quote", "/aigc/tasks", "/aigc/media-ticket", "/aigc/prompt/optimize", "/speech/tasks", "/speech/tasks/query":
 			return true
 		}
 		return cancelRoute.MatchString(path)
@@ -291,7 +291,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := ""
-	if strings.HasPrefix(r.URL.Path, "/api/v1/aigc/") {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/") {
 		path = strings.TrimPrefix(r.URL.Path, "/api/v1")
 	} else if strings.HasPrefix(r.URL.Path, "/v1/") {
 		path = "/aigc/" + strings.TrimPrefix(r.URL.Path, "/v1/")
